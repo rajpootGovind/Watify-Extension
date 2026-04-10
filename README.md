@@ -1,0 +1,2 @@
+# Watify-Extension
+For automation
