@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Watify.io",
+  "version": "2.1",
+  "icons": {
+    "16": "icons/favicon-16x16.png",
+    "32": "icons/favicon-32x32.png",
+    "128": "icons/favicon-32x32.png"
+  },
+  "permissions": ["scripting", "tabs", "activeTab", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "index.html",
+    "default_icon": {
+      "16": "icons/favicon-16x16.png",
+      "32": "icons/favicon-32x32.png"
+    }
+  },
+  "background": {
+    "service_worker": "ext-handler.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.digitalprominds.com/*"],
+      "js": ["index.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["listener.js", "index.js", "content.js"],
+      "css": ["style.css"],
+      "run_at": "document_idle"
+    }
+    
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["bundle.js", "inject.js", "wppconnect-wa.js"],
+      "matches": ["https://web.whatsapp.com/*"]
+    }
+  ]
+}
