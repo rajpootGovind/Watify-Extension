@@ -238,7 +238,7 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-window.WPP.on("chat.active_chat", manageActiveChat);
+// window.WPP.on("chat.active_chat", manageActiveChat);
 
 async function sendSingleMsgTemplate(msgData, from) {
   // ✅ FIX #2: original called waitForToken() without await and after getToken()
@@ -295,24 +295,17 @@ async function checkMsgInChatBot(message, from) {
           (keyword_type === "string" && msg.includes(kw))
         ) {
           const msgData = { caption: data.msg_caption, media: data.msg_media };
-          const sendRes = await sendMsg(msgData, from);
-          if (sendRes) {
-            userPlan.totalSend = Number(userPlan.totalSend) + 1;
-            window.postMessage(
-              {
-                updateChatBot: {
-                  slug: data.bot_id,
-                  total: 1,
-                  send: 1,
-                  failed: 0,
-                  sender: "chatbot_data",
-                  token,
-                  saveAnalytics: 1,
-                },
-              },
-              "*"
-            );
-          }
+          // ✅ AFTER — delegate entirely to inject.js via triggerWebhookFunction
+          window.postMessage({
+            action: "triggerWebhookFunction",
+            body: {
+              action: "chatbots",
+              trigger_key: message,        // the raw incoming message text
+              client_id: from,
+              client_encoded: 0,
+            }
+          }, "*");
+          return; // inject.js takes it from here
         }
       });
     });
@@ -379,56 +372,35 @@ async function checkMsgInFlowcharts(message, from) {
       userPlan.msg === "Plan Expired"
     ) return;
 
-    const msg = message?.toLowerCase().trim();
-    const onGoingFlowchart =
-      JSON.parse(localStorage.getItem("onGoingFlowchart")) || {};
-
-    for (const data of activeFlowCharts) {
-      const { trigger_key, all_nodes: allNodesRaw, slug } = data;
-      const triggerKeys = trigger_key?.split(",")?.map((k) => k?.toLowerCase().trim());
-      const allNodes = JSON.parse(allNodesRaw);
-      const flowState = onGoingFlowchart[from]?.[slug];
-      const matchedTrigger = triggerKeys?.includes(msg);
-
-      if (matchedTrigger) {
-        const startNode = findNode(allNodes, "starting");
-        if (!startNode) continue;
-        await sendNodeMessage(from, slug, startNode, allNodes, onGoingFlowchart, true);
-        continue;
+    // ✅ Delegate to inject.js — it has the real window.WPP
+    window.postMessage({
+      action: "triggerWebhookFunction",
+      body: {
+        action: "flowcharts",
+        trigger_key: message,
+        client_id: from,
+        client_encoded: 0,
       }
+    }, "*");
+    return;
 
-      if (flowState && flowState.options) {
-        const matchedOption = Object.keys(flowState.options).find(
-          (key) => key?.toLowerCase().trim() === msg
-        );
-        if (matchedOption) {
-          const nextNodeId = flowState.options[matchedOption]?.[0];
-          if (!nextNodeId) {
-            delete onGoingFlowchart[from][slug];
-          } else {
-            const nextNode = allNodes[nextNodeId];
-            if (nextNode)
-              await sendNodeMessage(from, slug, nextNode, allNodes, onGoingFlowchart);
-          }
-        }
-      }
-    }
+    // ❌ Everything below is removed — sendNodeMessage calls window.WPP
+    //    which doesn't exist in bundle.js context. inject.js handles this.
 
-    localStorage.setItem("onGoingFlowchart", JSON.stringify(onGoingFlowchart));
   } catch (error) {
     console.error("Error in checkMsgInFlowcharts:", error);
   }
 }
 
-window.WPP.on("chat.new_message", async (msg) => {
-  try {
-    if (msg.from._serialized === userPhone || msg.user === "status") return;
-    checkMsgInChatBot(msg.body, msg.from._serialized);
-    checkMsgInFlowcharts(msg.body, msg.from._serialized);
-  } catch (error) {
-    // silent
-  }
-});
+// window.WPP.on("chat.new_message", async (msg) => {
+//   try {
+//     if (msg.from._serialized === userPhone || msg.user === "status") return;
+//     checkMsgInChatBot(msg.body, msg.from._serialized);
+//     checkMsgInFlowcharts(msg.body, msg.from._serialized);
+//   } catch (error) {
+//     // silent
+//   }
+// });
 
 const handleBulkCamp = (payload) => {
   const templateData = availableTemplates.find(

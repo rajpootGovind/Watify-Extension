@@ -201,10 +201,9 @@ window.addEventListener("message", async (event) => {
   }
 
   if (event.data.manageUiForward) {
-    const { ui, value } = event.data.manageUiForward;
-    if (ui === "darkMode") toggleTheme(false, value);
-    else manageBlur(ui, value);
-  }
+  // handled by bundle.js — ignore in index.js
+  return;
+}
 
   await waitForToken();
   if (!location.href.includes("web.whatsapp.com")) return;

@@ -5,12 +5,29 @@
 
   console.log("🔥 [inject.js] running, WPP version=", window.WPP?.version);
 
-  if (!window.WPP) {
-    console.error("❌ [inject.js] window.WPP not found — wppconnect-wa.js did not load");
-    return;
+  // if (!window.WPP) {
+  //   console.error("❌ [inject.js] window.WPP not found — wppconnect-wa.js did not load");
+  //   return;
+  // }
+
+  // ✅ REPLACE with a waitForWPP wrapper around the entire init logic:
+  function waitForWPP(callback, attempts) {
+    attempts = attempts || 0;
+    if (attempts > 50) {
+      console.error("❌ [inject.js] WPP never appeared after 50 attempts");
+      return;
+    }
+    if (window.WPP && window.WPP.webpack) {
+      console.log("🔥 [inject.js] WPP found on attempt", attempts, "version=", window.WPP.version);
+      callback();
+    } else {
+      setTimeout(() => waitForWPP(callback, attempts + 1), 300);
+    }
   }
 
-  // ── helpers ──────────────────────────────────────────────────
+  waitForWPP(function() {
+    
+    // ── helpers ──────────────────────────────────────────────────
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
   // chrome.storage is unavailable here — use postMessage to ask index.js
@@ -40,23 +57,30 @@
     return token;
   }
 
-  async function sendMsg(data, number) {
-    try {
-      if (!number.includes("@c.us")) number = number + "@c.us";
-      let msgRes;
-      if (data.media && data.media !== "") {
-        const { file, fileType, filename } = data.media;
-        const convert = { "&#96;": "`", "&quot;": '"', "&apos;": "'" };
-        const caption = (data.caption || "").replace(/&#96;|&quot;|&apos;/g, (m) => convert[m]);
-        await sleep(1500);
-        msgRes = await window.WPP.chat.sendFileMessage(number, file, { type: fileType, caption, filename, createChat: true, delay: 500 });
-      } else {
-        msgRes = await window.WPP.chat.sendTextMessage(number, data.caption || "", { delay: 500, createChat: true });
-      }
-      const res = await msgRes.sendMsgResult;
-      return res?.messageSendResult === "OK";
-    } catch (e) { console.log("sendMsg error", e); return false; }
-  }
+async function sendMsg(data, number) {
+  try {
+    let wid = String(number);
+    // ✅ Only add suffix if completely missing — preserve @lid, @c.us, @s.whatsapp.net as-is
+    if (!wid.includes("@")) {
+      wid = wid + "@c.us";
+    } else if (wid.includes("@s.whatsapp.net")) {
+      wid = wid.replace("@s.whatsapp.net", "@c.us");
+    }
+    console.log("📤 sendMsg to:", wid);
+    let msgRes;
+    if (data.media && data.media !== "") {
+      const { file, fileType, filename } = data.media;
+      const convert = { "&#96;": "`", "&quot;": '"', "&apos;": "'" };
+      const caption = (data.caption || "").replace(/&#96;|&quot;|&apos;/g, (m) => convert[m]);
+      await sleep(1500);
+      msgRes = await window.WPP.chat.sendFileMessage(wid, file, { type: fileType, caption, filename, createChat: false, delay: 500 });
+    } else {
+      msgRes = await window.WPP.chat.sendTextMessage(wid, data.caption || "", { delay: 500, createChat: false });
+    }
+    const res = await msgRes.sendMsgResult;
+    return res?.messageSendResult === "OK";
+  } catch (e) { console.log("sendMsg error", e); return false; }
+}
 
   // ── state ─────────────────────────────────────────────────────
   let userPhone = null;
@@ -91,10 +115,7 @@
   }
 
   function getUserInfoFromStorage() {
-    try { 
-      console.log("User info in inject", JSON.parse(localStorage.getItem("userInfo")));
-      
-      return JSON.parse(localStorage.getItem("userInfo") || "{}"); } catch (e) { return {}; }
+    try { return JSON.parse(localStorage.getItem("userInfo") || "{}"); } catch (e) { return {}; }
   }
 
   function _init_() {
@@ -133,8 +154,6 @@
 
   // ── chatbot ───────────────────────────────────────────────────
   async function checkMsgInChatBot(message, from) {
-    console.log("Chatbots ******=>", message, from);
-    
     try {
       const token = await getToken();
        console.log("🤖 checkMsgInChatBot token:", token, "bots:", activeChatBots.length);
@@ -285,21 +304,35 @@
 
   // ── message listener ──────────────────────────────────────────
   window.addEventListener("message", async (event) => {
-    if (event.origin !== "https://web.whatsapp.com") return;
-    try {
-      if (event.data.action === "triggerWebhookFunction") {
-        const body = event.data.body;
-        let cid = body.client_encoded == 1 ? atob(body.client_id) : body.client_id;
-        if (!cid) return;
-        if (!cid.includes("@")) cid = cid + "@c.us";
-        if (body.action === "flowcharts") checkMsgInFlowcharts(body.trigger_key, cid);
-        else if (body.action === "chatbots") checkMsgInChatBot(body.trigger_key, cid);
-        else if (body.action === "sendSingleMsgTemplate") {
-          const t = availableTemplates.find((d) => d.temp_slug == body.template_id);
-          if (t) await sendSingleMsgTemplate({ caption: t.caption, template_id: body.template_id, media: t.media }, cid.split("@")[0]);
-        }
-        return;
+      if (event.data?.action === "triggerWebhookFunction") {
+      const body = event.data.body;
+      let cid = body.client_encoded == 1 ? atob(body.client_id) : body.client_id;
+      if (!cid) return;
+      if (!cid.includes("@")) cid = cid + "@c.us";
+      if (body.action === "flowcharts") checkMsgInFlowcharts(body.trigger_key, cid);
+      else if (body.action === "chatbots") checkMsgInChatBot(body.trigger_key, cid);
+      else if (body.action === "sendSingleMsgTemplate") {
+        const t = availableTemplates.find((d) => d.temp_slug == body.template_id);
+        if (t) await sendSingleMsgTemplate({ caption: t.caption, template_id: body.template_id, media: t.media }, cid.split("@")[0]);
       }
+      return;
+  }
+
+  if (event.origin !== "https://web.whatsapp.com") return;
+    try {
+      // if (event.data.action === "triggerWebhookFunction") {
+      //   const body = event.data.body;
+      //   let cid = body.client_encoded == 1 ? atob(body.client_id) : body.client_id;
+      //   if (!cid) return;
+      //   if (!cid.includes("@")) cid = cid + "@c.us";
+      //   if (body.action === "flowcharts") checkMsgInFlowcharts(body.trigger_key, cid);
+      //   else if (body.action === "chatbots") checkMsgInChatBot(body.trigger_key, cid);
+      //   else if (body.action === "sendSingleMsgTemplate") {
+      //     const t = availableTemplates.find((d) => d.temp_slug == body.template_id);
+      //     if (t) await sendSingleMsgTemplate({ caption: t.caption, template_id: body.template_id, media: t.media }, cid.split("@")[0]);
+      //   }
+      //   return;
+      // }
       const msg = event.data.message;
       if (!msg) return;
       // AFTER (correct — execute the theme/blur change directly in the WA tab):
@@ -364,17 +397,23 @@
     }, 1000);
   });
   window.WPP.on("chat.active_chat", manageActiveChat);
-  console.log("Window wpp in last inject.js -->", window.WPP);
-  
-  window.WPP.on("chat.new_message", async (msg) => {
-    console.log("55555%%%%%------------------->", msg);
-    
-    try {
-      if (!userPhone || msg.from._serialized === userPhone || msg.user === "status") return;
-      checkMsgInChatBot(msg.body, msg.from._serialized);
-      checkMsgInFlowcharts(msg.body, msg.from._serialized);
-    } catch (e) {}
-  });
+ window.WPP.on("chat.new_message", async (msg) => {
+  try {
+    if (!userPhone || msg.from._serialized === userPhone || msg.user === "status") return;
+
+    // Pass the original _serialized as-is — sendMsg will keep it intact
+    const from = msg.from._serialized;
+    console.log("📨 [chat.new_message] from:", from);
+
+    checkMsgInChatBot(msg.body, from);
+    checkMsgInFlowcharts(msg.body, from);
+  } catch (e) { console.error("chat.new_message error", e); }
+});
 
   waitAndSaveUserInfo(0);
+  
+  });
+
+
+  
 })();

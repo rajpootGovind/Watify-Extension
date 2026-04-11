@@ -65,6 +65,7 @@ function _init_(WPP) {
     if (userStatus.blurUserNames) manageBlur("blurUserNames", true);
     if (userStatus.blurProfile) manageBlur("blurProfile", true);
     if (userStatus.blurMessages) manageBlur("blurMessages", true);
+    if (userStatus.blurConversation) manageBlur("blurConversation", true);
 
     if (userInfo?.userPhone?.phone) {
       window.postMessage(
